@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consistency Lab</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px/1.45 system-ui, sans-serif; }
+    body { max-width: 1100px; margin: 36px auto; padding: 0 20px; }
+    h1 { margin-bottom: 4px; } .muted { opacity: .72; }
+    form { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0; }
+    input, select, button { font: inherit; padding: 8px 10px; }
+    #replicas { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px; }
+    .card { border: 1px solid #8886; border-radius: 10px; padding: 14px; min-height: 115px; }
+    .value { padding: 5px 0; border-bottom: 1px solid #8884; overflow-wrap: anywhere; }
+    .events { max-height: 280px; overflow: auto; padding-left: 22px; }
+    .conflict { color: #d97706; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Consistency Lab</h1>
+  <div class="muted">Writes appear at one replica first, then propagate after a delay. Conflicting values use the highest write version.</div>
+  <form id="write">
+    <select id="replica"><option>replica-a</option><option>replica-b</option><option>replica-c</option></select>
+    <input id="key" placeholder="key" value="color" required>
+    <input id="value" placeholder="value" required>
+    <button>Write</button>
+  </form>
+  <div class="muted" id="pending"></div>
+  <section id="replicas"></section>
+  <h2>Propagation log</h2>
+  <ol class="events" id="events"></ol>
+  <script>
+    const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    async function refresh() {
+      const state = await fetch('/api/state').then(r => r.json());
+      document.querySelector('#pending').textContent = state.pending + ' propagation(s) pending';
+      document.querySelector('#replicas').innerHTML = state.replicas.map(replica => {
+        const entries = Object.entries(replica.values);
+        const items = entries.length
+          ? entries.map(([key,item]) => '<div class="value"><b>' + esc(key) + '</b>: ' + esc(item.value) + ' <span class="muted">(v' + item.version + ')</span></div>').join('')
+          : '<span class="muted">No values yet</span>';
+        return '<article class="card"><h3>' + esc(replica.name) + '</h3>' + items + '</article>';
+      }).join('');
+      document.querySelector('#events').innerHTML = state.events.slice().reverse().map(event => {
+        const conflict = event.conflict ? 'conflict' : '';
+        const marker = event.conflict ? ' · conflict' : '';
+        return '<li class="' + conflict + '">' + esc(new Date(event.at).toLocaleTimeString()) + ' — ' + esc(event.message) + marker + '</li>';
+      }).join('');
+    }
+    document.querySelector('#write').addEventListener('submit', async event => {
+      event.preventDefault();
+      const response = await fetch('/api/write', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+        replica:document.querySelector('#replica').value,
+        key:document.querySelector('#key').value,
+        value:document.querySelector('#value').value
+      })});
+      if (!response.ok) alert(await response.text());
+      refresh();
+    });
+    refresh();
+    setInterval(refresh, 500);
+  </script>
+</body>
+</html>
